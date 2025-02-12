@@ -1,5 +1,5 @@
-use crate::protocol::archive::ArchiveAlgorithm;
-use crate::protocol::hpke_format::HPKEParameters;
+use crate::authenticator::protocol::archive::ArchiveAlgorithm;
+use crate::authenticator::protocol::hpke_format::HPKEParameters;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

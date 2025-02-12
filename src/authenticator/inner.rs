@@ -1,28 +1,36 @@
 use crate::authenticator::error::AuthenticatorError as AuthError;
 use crate::crypto::gen_key_pair;
-use crate::protocol::archive::ArchiveAlgorithm;
-use crate::protocol::credential::{ByteStreamCredential, Credential};
-use crate::protocol::hpke_format::{HPKEMode, HPKEParameters};
+use crate::authenticator::protocol::archive::ArchiveAlgorithm;
+use crate::authenticator::protocol::credential::{ByteStreamCredential, Credential};
+use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters};
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 
 pub trait InnerAuthenticator {
     fn support_algorithms(&self) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>);
-    fn get_credentials(&self) -> Result<impl Credential, AuthError>;
+    fn get_credentials(&self) -> Result<Vec<impl Credential>, AuthError>;
     fn store_credential(&self, credential: impl Credential) -> Result<(), AuthError>;
-
     fn key_pair(&self, kem: u16) -> (Vec<u8>, Vec<u8>);
 }
 
+/// 仅用于测试
+/// 只支持一种算法 kem: 0x11,kdf: 0x1, aead: 0x1,
+/// 凭证的类型为字节流（测试用）
+
 pub struct FakeInner {
+    pub credential: ByteStreamCredential,
     pub sk: Vec<u8>,
     pub pk: Vec<u8>,
 }
 
 impl FakeInner {
-    pub fn new() -> Self {
+    pub fn new(credential: impl Into<Vec<u8>>) -> Self {
         let (sk, pk) = gen_key_pair(0x11).unwrap();
-        Self { sk, pk }
+        Self {
+            credential: ByteStreamCredential(credential.into()),
+            sk,
+            pk,
+        }
     }
 }
 
@@ -40,8 +48,8 @@ impl InnerAuthenticator for FakeInner {
         )
     }
 
-    fn get_credentials(&self) -> Result<impl Credential, AuthError> {
-        Ok(ByteStreamCredential(b"CRENDENTIAL".to_vec()))
+    fn get_credentials(&self) -> Result<Vec<impl Credential>, AuthError> {
+        Ok(vec![self.credential.clone()])
     }
 
     fn store_credential(&self, credential: impl Credential) -> Result<(), AuthError> {

@@ -1,18 +1,20 @@
+use crate::authenticator::protocol::archive::ArchiveAlgorithm;
+use crate::authenticator::protocol::credential::Credential;
+use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters};
+use crate::authenticator::protocol::request::ExportRequest;
+use crate::authenticator::protocol::response::ExportResponse;
 use crate::crypto::{decrypt, encrypt};
-use crate::protocol::{
-    archive::ArchiveAlgorithm,
-    credential::Credential,
-    hpke_format::{HPKEMode, HPKEParameters},
-    request::ExportRequest,
-    response::ExportResponse,
-};
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 use error::{AuthenticatorError as AuthError, AuthenticatorError::*};
 use inner::InnerAuthenticator;
+use protocol::credential::StructuredSingleFileCredential;
 
+#[allow(unused)]
 mod error;
 pub mod inner;
+pub mod pin;
+pub mod protocol;
 
 /// 验证器实体，不包括Fido Client部分
 pub struct Authenticator<T: InnerAuthenticator> {
@@ -62,7 +64,12 @@ impl<T: InnerAuthenticator> Authenticator<T> {
         )
         .map_err(|s| CryptoError(s))?;
 
-        println!("DECRYPT:{}", String::from_utf8(decrypted_text).unwrap());
+        // println!("DECRYPT:{}", String::from_utf8(decrypted_text).unwrap());
+        self.inner
+            .store_credential(StructuredSingleFileCredential {
+                rp_id: response.exporter,
+                credential: decrypted_text,
+            })?;
         Ok(())
     }
     // 匹配使用的算法
@@ -75,12 +82,18 @@ impl<T: InnerAuthenticator> Authenticator<T> {
     ) -> Result<(HPKEParameters, ArchiveAlgorithm), AuthError> {
         let supported = self.inner.support_algorithms();
 
-        let hpke = supported
-            .0
+        let hpke = recv_hpke
             .iter()
-            .find(|support| recv_hpke.contains(support))
+            .find(|recv| supported.0.contains(recv))
             .cloned()
-            .ok_or(AuthError::UnsupportedAlgorithm)?;
+            .ok_or(UnsupportedAlgorithm)?;
+
+        // let hpke = supported
+        //     .0
+        //     .iter()
+        //     .find(|support| recv_hpke.contains(support))
+        //     .cloned()
+        //     .ok_or(AuthError::UnsupportedAlgorithm)?;
 
         let archive = supported
             .1
@@ -100,12 +113,17 @@ impl<T: InnerAuthenticator> Authenticator<T> {
         // Self::verify_request(&request).map_err(|e| RequestNotAllowed(e))?;
         let (mut hpke_param, archive_alg) =
             self.match_algorithm(&request.hpke_parameters, &request.archive)?;
-        let credential = self.inner.get_credentials()?;
-        let data = credential
-            .get_credential()
+        let rp = &request.importer;
+        let credentials = self.inner.get_credentials()?;
+
+        let credential = credentials
+            .into_iter()
+            .filter(|cred| cred.get_rp_id().eq(rp))
             .take(1)
             .next()
-            .ok_or(InternalError("Incorrect Credential Data".into()))?;
+            .ok_or(CredentialNotFound)?;
+
+        let data = credential.get_credential();
 
         let (cipher, encapped_key) = encrypt(
             hpke_param.kem,

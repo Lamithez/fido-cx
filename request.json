@@ -1,0 +1,33 @@
+{
+  "version": 0,
+  "hpke_parameters": [
+    {
+      "mode": "base",
+      "kem": 18,
+      "kdf": 1,
+      "aead": 1,
+      "key": "BAHniXlzvh6BLxL3LNi39w8W1Rg3hlKKm-SmclT2u2pTwEHcTHbFFZcn_4cWgQHmmlAllpLu3AeuremXyon-ZVvhWAAfChj7jK4vRyubx20TgOW81xz1QHOMu9NmiZgHESoKqefL-t2MJOjZbnC8C_46NdiXgg45CiIorurmf5c20mX4Ow=="
+    },
+    {
+      "mode": "base",
+      "kem": 16,
+      "kdf": 1,
+      "aead": 1,
+      "key": "BH85cVuhiMMEdwmxW_x1-eDqcks0oWbC7r7PckirUbbldQ1z4VojhmW_Mv8WvpRquLULImSW2fISlwMMU8TWcpE="
+    },
+    {
+      "mode": "base",
+      "kem": 17,
+      "kdf": 1,
+      "aead": 1,
+      "key": "BEChg2kSv2V1ZOkt0_D5WD9MLV7IuaTCkVd5L1fm0GdF2AoOxmEpadECC63y0Ubli5VmPeItTDtOayxUpCDy6-qUkuQbK4Vi6kcgPgUrboLI8vP1HBWq6KanRMkFfjt_GQ=="
+    }
+  ],
+  "archive": [
+    "deflate"
+  ],
+  "mode": "base",
+  "importer": "www.example.com",
+  "credential_types": null,
+  "known_extensions": null
+}

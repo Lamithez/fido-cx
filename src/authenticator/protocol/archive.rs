@@ -1,7 +1,4 @@
-use flate2::read::DeflateDecoder;
-use flate2::write::DeflateEncoder;
-use flate2::Compression;
-use serde::de::Error;
+use flate2::{read::DeflateDecoder, write::DeflateEncoder, Compression};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 
@@ -47,7 +44,7 @@ fn deflate_unzip(data: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::protocol::archive::{deflate_unzip, deflate_zip};
+    use crate::authenticator::protocol::archive::{deflate_unzip, deflate_zip};
 
     #[test]
     fn test_zip() {
