@@ -1,20 +1,44 @@
 #[allow(unused)]
-mod agility;
+pub(crate) mod agility;
 
+use crate::authenticator::protocol::hpke_format::HPKEMode;
 use agility::*;
 use hpke::aead::Aead;
 use hpke::kdf::Kdf;
-use hpke::{Kem, OpModeR, OpModeS, Serializable};
+use hpke::{Kem, OpModeR, OpModeS, PskBundle, Serializable};
 use rand::{rngs::StdRng, SeedableRng};
 
 const INFO: &[u8] = b"information";
 const AAD: &[u8] = b"information aad";
+
+//协议中没有规定psk_id应该在哪里进行协商，这里只用一个进行处理
+static PSK_ID: &[u8; 40] = b"preshared key attempt #5, take 2. action";
+static PSK_BYTES: [u8; 512] = [0; 512];
+pub fn psk(kdf_alg: KdfAlg) -> AgilePskBundle<'static> {
+    AgilePskBundle(PskBundle {
+        psk: &PSK_BYTES[..kdf_alg.get_digest_len()],
+        psk_id: PSK_ID,
+    })
+}
 
 pub fn gen_key_pair(kem: u16) -> Result<(Vec<u8>, Vec<u8>), String> {
     let mut csprng = StdRng::from_entropy();
     let kem_alg = KemAlg::try_from_u16(kem)?;
     let pair = agile_gen_keypair(kem_alg, &mut csprng);
     Ok((pair.0.privkey_bytes, pair.1.pubkey_bytes))
+}
+
+fn trans_keypair(keypair: &(Vec<u8>, Vec<u8>), kem_alg: KemAlg) -> AgileKeypair {
+    AgileKeypair(
+        AgilePrivateKey {
+            kem_alg,
+            privkey_bytes: keypair.0.to_owned(),
+        },
+        AgilePublicKey {
+            kem_alg,
+            pubkey_bytes: keypair.1.to_owned(),
+        },
+    )
 }
 
 ///加密数据
@@ -25,12 +49,24 @@ pub fn encrypt(
     aead_flag: u16,
     data: &[u8],
     pki: &[u8],
+    mode: &HPKEMode,
+    key_pair: &(Vec<u8>, Vec<u8>),
 ) -> Result<(Vec<u8>, Vec<u8>), String> {
     let mut csprng = StdRng::from_entropy();
     let (aead_alg, kdf_alg, kem_alg) = match_algorithm(kem_flag, kdf_flag, aead_flag)?;
+
+    let op_mode_ty = match mode {
+        HPKEMode::Base => AgileOpModeSTy::Base,
+        HPKEMode::Psk => AgileOpModeSTy::Psk(psk(kdf_alg)),
+        HPKEMode::Auth => AgileOpModeSTy::Auth(trans_keypair(key_pair, kem_alg)),
+        HPKEMode::AuthPsk => {
+            AgileOpModeSTy::AuthPsk(trans_keypair(key_pair, kem_alg), psk(kdf_alg))
+        }
+    };
+
     let op_mode_s = AgileOpModeS {
         kem_alg,
-        op_mode_ty: AgileOpModeSTy::Base,
+        op_mode_ty,
     };
     let pki = AgilePublicKey {
         kem_alg,
@@ -60,11 +96,28 @@ pub fn decrypt(
     ski: &[u8],
     pki: &[u8],
     encapsulated_key: &[u8],
+    mode: &HPKEMode,
+    pke: &Option<Vec<u8>>,
 ) -> Result<Vec<u8>, String> {
     let (aead_alg, kdf_alg, kem_alg) = match_algorithm(kem_flag, kdf_flag, aead_flag)?;
+    let op_mode_ty = match mode {
+        HPKEMode::Base => AgileOpModeRTy::Base,
+        HPKEMode::Psk => AgileOpModeRTy::Psk(psk(kdf_alg)),
+        HPKEMode::Auth => AgileOpModeRTy::Auth(AgilePublicKey {
+            kem_alg,
+            pubkey_bytes: pke.to_owned().unwrap(),
+        }),
+        HPKEMode::AuthPsk => AgileOpModeRTy::AuthPsk(
+            AgilePublicKey {
+                kem_alg,
+                pubkey_bytes: pke.to_owned().unwrap(),
+            },
+            psk(kdf_alg),
+        ),
+    };
     let op_mode_r = AgileOpModeR {
         kem_alg,
-        op_mode_ty: AgileOpModeRTy::Base,
+        op_mode_ty,
     };
     let encapped_key = AgileEncappedKey {
         kem_alg,

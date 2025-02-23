@@ -23,6 +23,7 @@ use hpke::{
 };
 
 use rand::{rngs::StdRng, CryptoRng, RngCore, SeedableRng};
+use crate::authenticator::crypto::psk;
 
 pub trait AgileAeadCtxS {
     fn seal_in_place_detached(
@@ -182,7 +183,7 @@ impl KdfAlg {
         }
     }
 
-    fn get_digest_len(&self) -> usize {
+    pub fn get_digest_len(&self) -> usize {
         match self {
             KdfAlg::HkdfSha256 => 32,
             KdfAlg::HkdfSha384 => 48,
@@ -322,7 +323,10 @@ macro_rules! do_gen_keypair {
     }};
 }
 
-pub(crate) fn agile_gen_keypair<R: CryptoRng + RngCore>(kem_alg: KemAlg, csprng: &mut R) -> AgileKeypair {
+pub(crate) fn agile_gen_keypair<R: CryptoRng + RngCore>(
+    kem_alg: KemAlg,
+    csprng: &mut R,
+) -> AgileKeypair {
     match kem_alg {
         KemAlg::X25519HkdfSha256 => do_gen_keypair!(X25519HkdfSha256, kem_alg, csprng),
         KemAlg::DhP256HkdfSha256 => do_gen_keypair!(DhP256HkdfSha256, kem_alg, csprng),
@@ -453,7 +457,7 @@ pub enum AgileOpModeSTy<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub struct AgilePskBundle<'a>(PskBundle<'a>);
+pub struct AgilePskBundle<'a>(pub PskBundle<'a>);
 
 impl<'a> AgilePskBundle<'a> {
     pub fn try_lift<Kdf: KdfTrait>(self) -> Result<PskBundle<'a>, AgileHpkeError> {
@@ -556,7 +560,7 @@ where
     Ok((encapped_key, Box::new(aead_ctx)))
 }
 
-pub  fn agile_setup_sender<R: CryptoRng + RngCore>(
+pub fn agile_setup_sender<R: CryptoRng + RngCore>(
     aead_alg: AeadAlg,
     kdf_alg: KdfAlg,
     kem_alg: KemAlg,
@@ -690,6 +694,7 @@ pub fn agile_setup_receiver(
     res.unwrap()
 }
 
+#[test]
 fn align_main() {
     let mut csprng = StdRng::from_entropy();
 
@@ -723,6 +728,7 @@ fn align_main() {
                         psk_id,
                     })
                 };
+                // let psk_bundle = psk(kdf_alg);
 
                 // Make two agreeing OpModes (AuthPsk is the most complicated, so we're just using
                 // that).

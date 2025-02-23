@@ -6,12 +6,12 @@ use authenticator::protocol::{
     file::{export_file, import_from_file},
 };
 
+use crate::authenticator::protocol::hpke_format::HPKEMode::{Auth, AuthPsk, Base, Psk};
 use colored::*;
 use dialoguer::{Input, Select};
-#[allow(unused)]
 
+#[allow(unused)]
 pub mod authenticator;
-pub mod crypto;
 mod test;
 //BFAB-9FAO-6JDA-GSDX-YXKF-C7SJ-B5OT
 
@@ -39,8 +39,26 @@ fn request<T: InnerAuthenticator>(a: &Authenticator<T>) {
         .with_prompt("输入导入凭证的RPID:")
         .interact_text()
         .unwrap();
+    let mode_option = ["base", "auth", "psk", "auth-psk"];
+
+    let selection = Select::new()
+        .with_prompt("选择")
+        .items(&mode_option)
+        .interact()
+        .unwrap();
+    let mode = match selection {
+        1 => Base,
+        2 => Auth,
+        3 => Psk,
+        4 => AuthPsk,
+        _ => {
+            println!("Error no such mode");
+            panic!();
+        }
+    };
+
     let export_request = a
-        .construct_export_request_base(name.to_string())
+        .construct_export_request(name.to_string(), mode)
         .expect("Construct Error");
     if let Err(e) = export_file("request.json", export_request) {
         println!("{}", ColoredString::from(e).red().bold());
@@ -81,7 +99,7 @@ fn import<T: InnerAuthenticator>(a: &Authenticator<T>) {
         println!("导入错误：{}", ColoredString::from(e).red().bold());
     }
 }
-fn main() {
+fn interact() {
     let auth = Authenticator {
         inner: PinInner::new(),
     };
@@ -114,3 +132,6 @@ fn main() {
     }
 }
 
+fn main() {
+    interact();
+}

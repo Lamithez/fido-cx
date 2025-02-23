@@ -1,9 +1,9 @@
+use crate::authenticator::crypto::gen_key_pair;
 use crate::authenticator::error::AuthenticatorError as AuthError;
 use crate::authenticator::inner::InnerAuthenticator;
 use crate::authenticator::protocol::archive::ArchiveAlgorithm;
 use crate::authenticator::protocol::credential::{Credential, StructuredSingleFileCredential};
-use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters};
-use crate::crypto::gen_key_pair;
+use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters, JWKS};
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 use rand::distributions::Alphanumeric;
@@ -63,16 +63,20 @@ impl PinInner {
     }
 }
 impl InnerAuthenticator for PinInner {
-    fn support_algorithms(&self) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
+    fn support_algorithms(&self, mode: &HPKEMode) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
         (
             self.keys
                 .iter()
                 .map(|(k, params)| HPKEParameters {
                     kem: *k,
-                    mode: HPKEMode::Base,
+                    mode: mode.clone(),
                     kdf: 0x1,
                     aead: 0x1,
-                    key: BASE64_URL_SAFE.encode(&params.1),
+                    key: serde_json::to_string(&JWKS {
+                        enc: None,
+                        pke: Some(BASE64_URL_SAFE.encode(&params.1)),
+                    })
+                    .unwrap(),
                 })
                 .collect(),
             vec![ArchiveAlgorithm::Deflate],

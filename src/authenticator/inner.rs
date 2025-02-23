@@ -1,5 +1,5 @@
+use crate::authenticator::crypto::gen_key_pair;
 use crate::authenticator::error::AuthenticatorError as AuthError;
-use crate::crypto::gen_key_pair;
 use crate::authenticator::protocol::archive::ArchiveAlgorithm;
 use crate::authenticator::protocol::credential::{ByteStreamCredential, Credential};
 use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters};
@@ -7,7 +7,7 @@ use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 
 pub trait InnerAuthenticator {
-    fn support_algorithms(&self) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>);
+    fn support_algorithms(&self, mode: &HPKEMode) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>);
     fn get_credentials(&self) -> Result<Vec<impl Credential>, AuthError>;
     fn store_credential(&self, credential: impl Credential) -> Result<(), AuthError>;
     fn key_pair(&self, kem: u16) -> (Vec<u8>, Vec<u8>);
@@ -35,10 +35,10 @@ impl FakeInner {
 }
 
 impl InnerAuthenticator for FakeInner {
-    fn support_algorithms(&self) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
+    fn support_algorithms(&self,mode:&HPKEMode) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
         (
             vec![HPKEParameters {
-                mode: HPKEMode::Base,
+                mode: mode.clone(),
                 kem: 0x11,
                 kdf: 0x1,
                 aead: 0x1,

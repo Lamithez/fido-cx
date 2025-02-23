@@ -1,3 +1,4 @@
+use crate::authenticator::crypto::encrypt;
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,18 @@ pub struct HPKEParameters {
     pub kem: u16,
     pub kdf: u16,
     pub aead: u16,
-    pub key: String, //JWT
+    pub key: String, //JWK
+}
+
+pub struct JWK {
+    pub enc: Option<Vec<u8>>,
+    pub pke: Option<Vec<u8>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub(crate) struct JWKS {
+    pub(crate) enc: Option<String>,
+    pub(crate) pke: Option<String>,
 }
 
 impl PartialEq for HPKEParameters {
@@ -21,11 +33,35 @@ impl PartialEq for HPKEParameters {
 }
 
 impl HPKEParameters {
-    pub fn destruct_jwt(&self) -> Vec<u8> {
-        BASE64_URL_SAFE.decode(&self.key).unwrap()
+    pub fn destruct_jwk(&self) -> JWK {
+        let jwks: JWKS = serde_json::from_str(&self.key).expect("JWK Key is invalid");
+        JWK {
+            enc: if let Some(s) = jwks.enc {
+                Some(BASE64_URL_SAFE.decode(s).expect("Decoding error"))
+            } else {
+                None
+            },
+            pke: if let Some(s) = jwks.pke {
+                Some(BASE64_URL_SAFE.decode(s).expect("Decoding error"))
+            } else {
+                None
+            },
+        }
     }
-    pub fn construct_jwt(&mut self, key: Vec<u8>) {
-        self.key = BASE64_URL_SAFE.encode(&key)
+    pub fn construct_jwk(&mut self, key: Option<Vec<u8>>, pke: Option<Vec<u8>>) {
+        self.key = serde_json::to_string(&JWKS {
+            enc: if let Some(k) = key {
+                Some(BASE64_URL_SAFE.encode(&k))
+            } else {
+                None
+            },
+            pke: if let Some(k) = pke {
+                Some(BASE64_URL_SAFE.encode(&k))
+            } else {
+                None
+            },
+        })
+        .expect("Serde error")
     }
 }
 

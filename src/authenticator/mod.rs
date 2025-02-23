@@ -1,15 +1,17 @@
+use crate::authenticator::crypto::{decrypt, encrypt};
 use crate::authenticator::protocol::archive::ArchiveAlgorithm;
 use crate::authenticator::protocol::credential::Credential;
+use crate::authenticator::protocol::hpke_format::HPKEMode::{Auth, AuthPsk};
 use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters};
 use crate::authenticator::protocol::request::ExportRequest;
 use crate::authenticator::protocol::response::ExportResponse;
-use crate::crypto::{decrypt, encrypt};
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 use error::{AuthenticatorError as AuthError, AuthenticatorError::*};
 use inner::InnerAuthenticator;
 use protocol::credential::StructuredSingleFileCredential;
 
+pub mod crypto;
 #[allow(unused)]
 mod error;
 pub mod inner;
@@ -22,10 +24,13 @@ pub struct Authenticator<T: InnerAuthenticator> {
 }
 
 impl<T: InnerAuthenticator> Authenticator<T> {
-    pub fn construct_export_request_base(&self, rp_id: String) -> Result<String, AuthError> {
-        let (hpke_params, archive_algs) = self.inner.support_algorithms();
-        let request =
-            ExportRequest::new(hpke_params, HPKEMode::Base, rp_id, archive_algs, None, None);
+    pub fn construct_export_request(
+        &self,
+        rp_id: String,
+        mode: HPKEMode,
+    ) -> Result<String, AuthError> {
+        let (hpke_params, archive_algs) = self.inner.support_algorithms(&mode);
+        let request = ExportRequest::new(hpke_params, mode, rp_id, archive_algs, None, None);
         serde_json::to_string(&request).map_err(Into::into)
     }
 
@@ -33,12 +38,49 @@ impl<T: InnerAuthenticator> Authenticator<T> {
     /// 传入收到的请求的字符串Json格式
     pub fn handle_request(&self, request: String) -> Result<String, AuthError> {
         let request: ExportRequest = serde_json::from_str(&request)?;
-        match request.mode {
-            HPKEMode::Base => self.handle_basic_request(request),
-            HPKEMode::Psk => self.handle_psk_request(request),
-            HPKEMode::Auth => self.handle_auth_request(request),
-            HPKEMode::AuthPsk => self.handle_auth_psk_request(request),
-        }
+
+        let (mut hpke_param, archive_alg) =
+            self.match_algorithm(&request.hpke_parameters, &request.archive, &request.mode)?;
+        let rp = &request.importer;
+        let credentials = self.inner.get_credentials()?;
+
+        let credential = credentials
+            .into_iter()
+            .filter(|cred| cred.get_rp_id().eq(rp))
+            .take(1)
+            .next()
+            .ok_or(CredentialNotFound)?;
+
+        let data = credential.get_credential();
+
+        let (cipher, encapped_key) = encrypt(
+            hpke_param.kem,
+            hpke_param.kdf,
+            hpke_param.aead,
+            &data,
+            &hpke_param.destruct_jwk().pke.unwrap(),
+            &request.mode,
+            &self.inner.key_pair(hpke_param.kem),
+        )
+        .map_err(|s| CryptoError(s))?;
+        let pk = if hpke_param.mode == AuthPsk || hpke_param.mode == Auth {
+            Some(self.inner.key_pair(hpke_param.kem).1)
+        } else {
+            None
+        };
+        hpke_param.construct_jwk(Some(encapped_key), pk);
+
+        let payload = archive_alg.zip(&cipher).map_err(|e| CodeError(e))?;
+
+        let response = ExportResponse {
+            version: 0,
+            hpke_parameters: hpke_param,
+            archive: archive_alg,
+            exporter: request.importer,
+            payload: BASE64_URL_SAFE.encode(&payload),
+        };
+
+        serde_json::to_string(&response).map_err(Into::into)
     }
 
     ///处理传入的Export响应，解密
@@ -60,7 +102,9 @@ impl<T: InnerAuthenticator> Authenticator<T> {
             &cipher,
             &sk,
             &pk,
-            &params.destruct_jwt(),
+            &params.destruct_jwk().enc.unwrap(),
+            &params.mode,
+            &params.destruct_jwk().pke,
         )
         .map_err(|s| CryptoError(s))?;
 
@@ -79,21 +123,15 @@ impl<T: InnerAuthenticator> Authenticator<T> {
         &self,
         recv_hpke: &[HPKEParameters],
         recv_archive: &[ArchiveAlgorithm],
+        mode: &HPKEMode,
     ) -> Result<(HPKEParameters, ArchiveAlgorithm), AuthError> {
-        let supported = self.inner.support_algorithms();
+        let supported = self.inner.support_algorithms(mode);
 
         let hpke = recv_hpke
             .iter()
             .find(|recv| supported.0.contains(recv))
             .cloned()
             .ok_or(UnsupportedAlgorithm)?;
-
-        // let hpke = supported
-        //     .0
-        //     .iter()
-        //     .find(|support| recv_hpke.contains(support))
-        //     .cloned()
-        //     .ok_or(AuthError::UnsupportedAlgorithm)?;
 
         let archive = supported
             .1
@@ -109,52 +147,5 @@ impl<T: InnerAuthenticator> Authenticator<T> {
         todo!()
     }
 
-    fn handle_basic_request(&self, request: ExportRequest) -> Result<String, AuthError> {
-        // Self::verify_request(&request).map_err(|e| RequestNotAllowed(e))?;
-        let (mut hpke_param, archive_alg) =
-            self.match_algorithm(&request.hpke_parameters, &request.archive)?;
-        let rp = &request.importer;
-        let credentials = self.inner.get_credentials()?;
-
-        let credential = credentials
-            .into_iter()
-            .filter(|cred| cred.get_rp_id().eq(rp))
-            .take(1)
-            .next()
-            .ok_or(CredentialNotFound)?;
-
-        let data = credential.get_credential();
-
-        let (cipher, encapped_key) = encrypt(
-            hpke_param.kem,
-            hpke_param.kdf,
-            hpke_param.aead,
-            &data,
-            &hpke_param.destruct_jwt(),
-        )
-        .map_err(|s| CryptoError(s))?;
-
-        hpke_param.construct_jwt(encapped_key);
-        let payload = archive_alg.zip(&cipher).map_err(|e| CodeError(e))?;
-
-        let response = ExportResponse {
-            version: 0,
-            hpke_parameters: hpke_param,
-            archive: archive_alg,
-            exporter: request.importer,
-            payload: BASE64_URL_SAFE.encode(&payload),
-        };
-
-        serde_json::to_string(&response).map_err(Into::into)
-    }
-    fn handle_auth_request(&self, request: ExportRequest) -> Result<String, AuthError> {
-        todo!()
-    }
-    fn handle_psk_request(&self, request: ExportRequest) -> Result<String, AuthError> {
-        todo!()
-    }
-    fn handle_auth_psk_request(&self, request: ExportRequest) -> Result<String, AuthError> {
-        todo!()
-    }
     pub fn store_credential() {}
 }
