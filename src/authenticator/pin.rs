@@ -3,6 +3,7 @@ use crate::authenticator::error::AuthenticatorError as AuthError;
 use crate::authenticator::inner::InnerAuthenticator;
 use crate::authenticator::protocol::archive::ArchiveAlgorithm;
 use crate::authenticator::protocol::credential::{Credential, StructuredSingleFileCredential};
+use crate::authenticator::protocol::hpke_format::HPKEMode::Base;
 use crate::authenticator::protocol::hpke_format::{HPKEMode, HPKEParameters, JWKS};
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
@@ -13,16 +14,56 @@ use std::fs;
 
 pub struct PinInner {
     pub keys: HashMap<u16, (Vec<u8>, Vec<u8>)>,
+    pub supports_algorithm: Vec<HPKEParameters>,
 }
 
 impl PinInner {
-    pub fn new() -> Self {
+    pub fn default() -> PinInner {
         let mut keys = HashMap::new();
+
         for kem in [0x10, 0x11, 0x12] {
             let k = gen_key_pair(kem).expect("Failed to generate key pair");
             keys.insert(kem, k);
         }
-        PinInner { keys }
+
+        let algors: Vec<HPKEParameters> = keys
+            .iter()
+            .map(|(k, params)| HPKEParameters {
+                kem: *k,
+                mode: Base,
+                kdf: 1,
+                aead: 1,
+                key: JWKS {
+                    enc: None,
+                    pke: Some(BASE64_URL_SAFE.encode(&params.1)),
+                },
+            })
+            .collect();
+        PinInner {
+            keys,
+            supports_algorithm: algors,
+        }
+    }
+    pub fn new(kem: u16, kdf: u16, aead: u16, mode: &HPKEMode) -> Self {
+        let mut keys = HashMap::new();
+
+        let k = gen_key_pair(kem).expect("Failed to generate key pair");
+        keys.insert(kem, k.clone());
+
+        let algors: Vec<HPKEParameters> = vec![HPKEParameters {
+            kem,
+            mode: mode.clone(),
+            kdf,
+            aead,
+            key: JWKS {
+                enc: None,
+                pke: Some(BASE64_URL_SAFE.encode(&k.1)),
+            },
+        }];
+        PinInner {
+            keys,
+            supports_algorithm: algors,
+        }
     }
     pub fn get_cred_lis(&self) -> HashMap<String, StructuredSingleFileCredential> {
         let mut creds = HashMap::new();
@@ -63,22 +104,9 @@ impl PinInner {
     }
 }
 impl InnerAuthenticator for PinInner {
-    fn support_algorithms(&self, mode: &HPKEMode) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
+    fn support_algorithms(&self) -> (Vec<HPKEParameters>, Vec<ArchiveAlgorithm>) {
         (
-            self.keys
-                .iter()
-                .map(|(k, params)| HPKEParameters {
-                    kem: *k,
-                    mode: mode.clone(),
-                    kdf: 0x1,
-                    aead: 0x1,
-                    key: serde_json::to_string(&JWKS {
-                        enc: None,
-                        pke: Some(BASE64_URL_SAFE.encode(&params.1)),
-                    })
-                    .unwrap(),
-                })
-                .collect(),
+            self.supports_algorithm.clone(),
             vec![ArchiveAlgorithm::Deflate],
         )
     }

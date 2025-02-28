@@ -58,7 +58,7 @@ fn request<T: InnerAuthenticator>(a: &Authenticator<T>) {
     };
 
     let export_request = a
-        .construct_export_request(name.to_string(), mode)
+        .construct_export_request(name.to_string())
         .expect("Construct Error");
     if let Err(e) = export_file("request.json", export_request) {
         println!("{}", ColoredString::from(e).red().bold());
@@ -91,7 +91,7 @@ fn import<T: InnerAuthenticator>(a: &Authenticator<T>) {
         .interact_text()
         .unwrap();
 
-    let export = || -> Result<(), String> {
+    let export = || -> Result<String, String> {
         let export = import_from_file(&name.to_string())?;
         a.handle_response_base(export).map_err(|e| e.to_string())
     };
@@ -101,7 +101,7 @@ fn import<T: InnerAuthenticator>(a: &Authenticator<T>) {
 }
 fn interact() {
     let auth = Authenticator {
-        inner: PinInner::new(),
+        inner: PinInner::default(),
     };
 
     banner();
