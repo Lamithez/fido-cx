@@ -1,26 +1,12 @@
+//! # FIDO Credential
+//! Note: 为了简便，Credential没有按照CXF的格式规定进行
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::path::Path;
 
 pub trait Credential {
     fn get_credential(&self) -> Vec<u8>;
-    fn get_credential_type(&self) -> String;
     fn get_rp_id(&self) -> String;
-}
-
-#[derive(Clone)]
-pub struct ByteStreamCredential(pub Vec<u8>);
-impl Credential for ByteStreamCredential {
-    fn get_credential(&self) -> Vec<u8> {
-        self.0.clone()
-    }
-
-    fn get_credential_type(&self) -> String {
-        "ByteStreamCredential".to_string()
-    }
-
-    fn get_rp_id(&self) -> String {
-        String::from("www.example.com")
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -34,17 +20,17 @@ impl Credential for StructuredSingleFileCredential {
         self.credential.clone()
     }
 
-    fn get_credential_type(&self) -> String {
-        "StructuredSingleFileCredential".to_string()
-    }
-
     fn get_rp_id(&self) -> String {
         self.rp_id.clone()
     }
 }
 
 impl StructuredSingleFileCredential {
-    pub fn from_file(path: &str) -> Result<Self, String> {
+    pub fn new(rp_id: String, credential: Vec<u8>) -> Self {
+        Self { rp_id, credential }
+    }
+    /// 从单个文件中读取凭证
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let file = File::open(path).map_err(|e| e.to_string())?;
         let mut reader = BufReader::new(file);
         let mut rp = String::new();
@@ -57,16 +43,12 @@ impl StructuredSingleFileCredential {
         })
     }
 
-    pub fn to_file(&self, path: &str) -> Result<(), String> {
+    /// 将凭证存储为单文件
+    /// 格式为第一行为RPID，其余的所有部分为凭证的ID
+    pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let mut file = File::create(path).map_err(|e| e.to_string())?;
         writeln!(file, "{}", self.rp_id).map_err(|e| e.to_string())?;
         file.write_all(self.credential.as_slice())
             .map_err(|e| e.to_string())
     }
 }
-//
-// #[test]
-// fn credential_test() {
-//     let s = StructuredSingleFileCredential::from_file("pint.cx.cx").unwrap();
-//     s.to_file("credential").unwrap();
-// }

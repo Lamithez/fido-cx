@@ -1,7 +1,7 @@
+use crate::authenticator::error::AuthenticatorError as AuthErr;
 use base64::prelude::BASE64_URL_SAFE;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HPKEParameters {
     pub mode: HPKEMode,
@@ -19,7 +19,7 @@ pub struct JWK {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct JWKS {
     pub enc: Option<String>,
-    pub pke: Option<String>,
+    pub pk: Option<String>,
 }
 
 impl PartialEq for HPKEParameters {
@@ -32,32 +32,28 @@ impl PartialEq for HPKEParameters {
 }
 
 impl HPKEParameters {
-    pub fn destruct_jwk(&self) -> JWK {
-        JWK {
-            enc: if let Some(s) = &self.key.enc {
-                Some(BASE64_URL_SAFE.decode(s).expect("Decoding error"))
-            } else {
-                None
-            },
-            pk: if let Some(s) = &self.key.pke {
-                Some(BASE64_URL_SAFE.decode(s).expect("Decoding error"))
-            } else {
-                None
-            },
-        }
+    pub fn decode_jwk(&self) -> Result<JWK, AuthErr> {
+        let decode = |s: &Option<String>| -> Result<Option<Vec<u8>>, AuthErr> {
+            s.as_ref()
+                .map(|s| {
+                    BASE64_URL_SAFE
+                        .decode(s)
+                        .map_err(|e| AuthErr::CodeError(format!("Decode error:{}", e.to_string())))
+                })
+                .transpose()
+        };
+        Ok(JWK {
+            enc: decode(&self.key.enc)?,
+            pk: decode(&self.key.pk)?,
+        })
     }
-    pub fn construct_jwk(&mut self, key: Option<Vec<u8>>, pke: Option<Vec<u8>>) {
+    pub fn encode_jwk(&mut self, key: Option<Vec<u8>>, pk: Option<Vec<u8>>) {
+        let encode = |data: Option<Vec<u8>>| -> Option<String> {
+            data.map(|bytes| BASE64_URL_SAFE.encode(&bytes))
+        };
         self.key = JWKS {
-            enc: if let Some(k) = key {
-                Some(BASE64_URL_SAFE.encode(&k))
-            } else {
-                None
-            },
-            pke: if let Some(k) = pke {
-                Some(BASE64_URL_SAFE.encode(&k))
-            } else {
-                None
-            },
+            enc: encode(key),
+            pk: encode(pk),
         }
     }
 }

@@ -1,19 +1,26 @@
 use crate::authenticator::inner::InnerAuthenticator;
 use crate::authenticator::pin::PinInner;
 use crate::authenticator::Authenticator;
-use authenticator::protocol::{
-    credential::Credential,
-    file::{export_file, import_from_file},
-};
+use authenticator::protocol::credential::Credential;
+use std::time::{Duration, Instant};
 
 use crate::authenticator::protocol::hpke_format::HPKEMode::{Auth, AuthPsk, Base, Psk};
 use colored::*;
 use dialoguer::{Input, Select};
 
-#[allow(unused)]
 pub mod authenticator;
+#[cfg(test)]
 mod test;
-//BFAB-9FAO-6JDA-GSDX-YXKF-C7SJ-B5OT
+mod bench;
+
+use std::fs;
+
+pub fn export_file(file_path: &str, content: String) -> Result<(), String> {
+    fs::write(file_path, content).map_err(|e| e.to_string())
+}
+pub fn import_from_file(file_path: &str) -> Result<String, String> {
+    fs::read_to_string(file_path).map_err(|e| e.to_string())
+}
 
 // Display the application banner
 fn banner() {
@@ -39,24 +46,6 @@ fn request<T: InnerAuthenticator>(a: &Authenticator<T>) {
         .with_prompt("输入导入凭证的RPID:")
         .interact_text()
         .unwrap();
-    let mode_option = ["base", "auth", "psk", "auth-psk"];
-
-    let selection = Select::new()
-        .with_prompt("选择")
-        .items(&mode_option)
-        .interact()
-        .unwrap();
-    let mode = match selection {
-        1 => Base,
-        2 => Auth,
-        3 => Psk,
-        4 => AuthPsk,
-        _ => {
-            println!("Error no such mode");
-            panic!();
-        }
-    };
-
     let export_request = a
         .construct_export_request(name.to_string())
         .expect("Construct Error");
@@ -93,7 +82,7 @@ fn import<T: InnerAuthenticator>(a: &Authenticator<T>) {
 
     let export = || -> Result<String, String> {
         let export = import_from_file(&name.to_string())?;
-        a.handle_response_base(export).map_err(|e| e.to_string())
+        a.handle_response(export).map_err(|e| e.to_string())
     };
     if let Err(e) = export() {
         println!("导入错误：{}", ColoredString::from(e).red().bold());
@@ -134,4 +123,5 @@ fn interact() {
 
 fn main() {
     interact();
+    // time_test();
 }
